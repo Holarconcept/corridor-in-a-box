@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-255-corridor-plan-registry-show-the-dest-anchor-s",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-255-corridor-plan-registry-show-the-dest-anchor-s": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-255-corridor-plan-registry-show-the-dest-anchor-s",
+    "origin"
+  ]
+}
