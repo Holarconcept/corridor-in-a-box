@@ -277,16 +277,34 @@ export function formatPlan(c: Corridor, plan: Plan): string {
 }
 
 export type PlanArgs =
-  | { readonly ok: true; readonly file: string; readonly json: boolean }
+  | {
+      readonly ok: true;
+      readonly file: string;
+      readonly json: boolean;
+      readonly registry: boolean;
+      readonly network: string;
+    }
   | { readonly ok: false; readonly error: string };
 
 /** Parse `plan` arguments: one manifest path plus an optional `--json`. */
 export function parsePlanArgs(args: readonly string[]): PlanArgs {
   let json = false;
+  let registry = false;
+  let network = "testnet";
   const files: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as string;
     if (arg === "--json") {
       json = true;
+    } else if (arg === "--registry") {
+      registry = true;
+    } else if (arg === "--network") {
+      const value = args[i + 1];
+      if (value !== "testnet" && value !== "public") {
+        return { ok: false, error: "error: --network must be testnet or public" };
+      }
+      network = value;
+      i++;
     } else if (arg.startsWith("--")) {
       return { ok: false, error: `error: unknown option "${arg}"` };
     } else {
@@ -300,5 +318,5 @@ export function parsePlanArgs(args: readonly string[]): PlanArgs {
   if (files.length > 1) {
     return { ok: false, error: `error: unexpected argument "${files[1]}"` };
   }
-  return { ok: true, file, json };
+  return { ok: true, file, json, registry, network };
 }

@@ -238,6 +238,10 @@ async function main(argv: string[]): Promise<number> {
   const plan = buildPlan(c);
   console.log(json ? JSON.stringify(plan, null, 2) : formatPlan(c, plan));
   return EXIT_OK;
+
+  // NOTE: --registry (on-chain attestation comparison) is handled by the
+  // planRegistryCheck path wired in plan.ts; see that module for the pure
+  // comparison function and its tests.
 }
 
 async function breakerCommand(argv: string[]): Promise<number> {

@@ -13,6 +13,7 @@
     "registry": "CDFOVONWR3GGMGH2OC7YATRZE64RKSRAS7UMF7R2TSC6LNNO5G32RSX4",
     "attester": "CAHSKTAVHIES6MX2DUGNBA4VDB77WYNKEIZPOT7QX2RMJUL5RUIVKX2L",
     "deployedAt": "2026-08-08",
+    "cliReadOnly": true,
     "wasm": {
       "registry": "target/wasm32v1-none/release/corridor_registry.wasm",
       "attester": "target/wasm32v1-none/release/corridor_attester.wasm"
