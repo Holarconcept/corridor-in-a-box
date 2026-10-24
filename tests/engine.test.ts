@@ -32,6 +32,8 @@ import {
 } from "@corridor/engine";
 import type { TransactionStatus } from "@corridor/adapter-kit";
 import { fail, ok, type Outcome, type PaymentIntent, settlementId } from "@corridor/types";
+import { StellarPathPaymentStrategy, StellarSettlementSubmitter } from "@corridor/stellar";
+import { Account, Keypair, type Horizon, type Transaction } from "@stellar/stellar-sdk";
 
 function corridor(sourceProtocol: "prefunded" | "sep6" = "prefunded"): Corridor {
   const r = parseCorridor({
@@ -2668,6 +2670,117 @@ describe("SettlementStrategy", () => {
       expect(settlingIdx).toBeGreaterThan(-1);
       expect(settledIdx).toBe(settlingIdx + 1);
     }
+  });
+});
+
+describe("path-payment settlement selection (#217)", () => {
+  const BRIDGE_ISSUER = Keypair.random().publicKey();
+  const RECV_ISSUER = Keypair.random().publicKey();
+  const DEPOSIT = Keypair.random().publicKey();
+
+  function pathCorridor(): Corridor {
+    const base = corridor();
+    const r = parseCorridor({
+      ...base,
+      settlement: {
+        ...base.settlement,
+        asset_issuer: BRIDGE_ISSUER,
+        receive_asset: "ARSX",
+        receive_asset_issuer: RECV_ISSUER,
+      },
+    });
+    if (!r.ok) throw new Error("fixture invalid");
+    return r.value;
+  }
+
+  /** A real StellarPathPaymentStrategy over a fake Horizon with one 99.9 ARSX path. */
+  function pathStrategy() {
+    const submitted: Transaction[] = [];
+    const strictSendPaths = vi.fn(() => ({
+      call: async () => ({ records: [{ destination_amount: "99.9000000", path: [] }] }),
+    }));
+    const server = {
+      loadAccount: async (id: string) => new Account(id, "100"),
+      submitTransaction: async (tx: Transaction) => {
+        submitted.push(tx);
+        return { successful: true };
+      },
+      strictSendPaths,
+      transactions: () => ({
+        transaction: () => ({ call: async () => ({ successful: true, ledger_attr: 7 }) }),
+      }),
+    } as unknown as Horizon.Server;
+    const strategy = new StellarPathPaymentStrategy(
+      new StellarSettlementSubmitter({
+        signerSecret: Keypair.random().secret(),
+        horizonUrl: "unused",
+        horizonServer: server,
+        allowedNetworks: ["public"],
+        allowLocalSignerOnMainnet: true,
+      }),
+    );
+    return { strategy, strictSendPaths, submitted };
+  }
+
+  function pathDeps() {
+    const submitter = createMockSubmitter();
+    const submit = vi.spyOn(submitter, "submit");
+    const d: EngineDeps = {
+      ...deps({ instructions: { kind: "stellar_payment", to: DEPOSIT, memo: "m-1" } }),
+      submitter,
+    };
+    return { d, submitter, submit };
+  }
+
+  it("selects StellarPathPaymentStrategy when receive_asset differs from bridge_asset", async () => {
+    const path = pathStrategy();
+    const { d, submitter, submit } = pathDeps();
+    const r = await execute(intent("path-select"), pathCorridor(), {
+      ...d,
+      // Plain strategy listed first: it must decline, not pay the bridge asset.
+      strategies: [new StellarPaymentStrategy(submitter), path.strategy],
+    });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.state).toBe("completed");
+    expect(submit).not.toHaveBeenCalled();
+    expect(path.strictSendPaths).toHaveBeenCalledOnce();
+    expect(path.submitted).toHaveLength(1);
+    const op = path.submitted[0]!.operations[0]!;
+    expect(op.type).toBe("pathPaymentStrictSend");
+    if (op.type === "pathPaymentStrictSend") {
+      expect(op.destination).toBe(DEPOSIT);
+      expect(op.sendAmount).toBe("100.0000000");
+      expect(op.destAsset.getCode()).toBe("ARSX");
+      // 99.9 × (1 - 50 bps) = 99.4005
+      expect(op.destMin).toBe("99.4005000");
+    }
+  });
+
+  it("keeps the plain payment strategy when the corridor has no differing receive_asset", async () => {
+    const path = pathStrategy();
+    const { d, submitter, submit } = pathDeps();
+    const r = await execute(intent("path-select-same"), corridor(), {
+      ...d,
+      strategies: [path.strategy, new StellarPaymentStrategy(submitter)],
+    });
+
+    expect(r.ok).toBe(true);
+    expect(submit).toHaveBeenCalledOnce();
+    expect(path.strictSendPaths).not.toHaveBeenCalled();
+    expect(path.submitted).toHaveLength(0);
+  });
+
+  it("fails closed without paying the bridge asset when no path strategy is wired", async () => {
+    const { d, submit } = pathDeps();
+    const r = await execute(intent("path-missing"), pathCorridor(), d);
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("SETTLEMENT_FAILED");
+      expect(r.error.message).toMatch(/ARSX/);
+    }
+    expect(submit).not.toHaveBeenCalled();
   });
 });
 

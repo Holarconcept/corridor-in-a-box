@@ -224,13 +224,50 @@ export const ComplianceSchema = z.object({
   sep12_sender_type: z.string().default("sep31-sender"),
 });
 
-export const SettlementSchema = z.object({
-  /** The on-chain bridge asset moved between the two anchors. */
-  bridge_asset: z.string().default("USDC"),
-  network: z.enum(["public", "testnet"]),
-  /** Issuer account of the bridge asset on the chosen network. */
-  asset_issuer: z.string().min(1),
-});
+export const SettlementSchema = z
+  .object({
+    /** The on-chain bridge asset moved between the two anchors. */
+    bridge_asset: z.string().default("USDC"),
+    network: z.enum(["public", "testnet"]),
+    /** Issuer account of the bridge asset on the chosen network. */
+    asset_issuer: z.string().min(1),
+    /**
+     * Asset code the receiving anchor accepts on-chain, when it is not the bridge
+     * asset. Set it and the settle leg becomes a `path_payment_strict_send`
+     * through the DEX: `bridge_asset` goes out, `receive_asset` arrives. Omit to
+     * pay `bridge_asset` directly.
+     */
+    receive_asset: z.string().min(1).optional(),
+    /** Issuer account of `receive_asset`. Required unless `receive_asset` is XLM. */
+    receive_asset_issuer: z.string().min(1).optional(),
+    /**
+     * Worst price move tolerated on a path payment, in basis points: the payment
+     * fails on-chain rather than deliver less than `expected × (1 - bps/10000)`.
+     * Omit for the conservative default of 50 (0.5%). Optional rather than
+     * defaulted so manifests that never path-pay keep their existing hash.
+     */
+    max_slippage_bps: z.number().int().min(0).lt(10_000).optional(),
+  })
+  .superRefine((s, ctx) => {
+    if (s.receive_asset_issuer !== undefined && s.receive_asset === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["receive_asset"],
+        message: "receive_asset_issuer is set but receive_asset is not",
+      });
+    }
+    if (
+      s.receive_asset !== undefined &&
+      s.receive_asset.toUpperCase() !== "XLM" &&
+      s.receive_asset_issuer === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["receive_asset_issuer"],
+        message: `receive_asset_issuer is required for receive_asset "${s.receive_asset}"`,
+      });
+    }
+  });
 
 /** Per-corridor payment limits (floor and ceiling). Optional, but a lane with no ceiling accepts
  *  any positive amount the caller asks for — set one before real money. */

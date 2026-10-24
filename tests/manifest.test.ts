@@ -168,6 +168,62 @@ describe("manifest", () => {
     });
   });
 
+  describe("settlement receive_asset / max_slippage_bps (#217)", () => {
+    const withSettlement = (extra: Record<string, unknown>) =>
+      parseCorridor({ ...valid, settlement: { ...valid.settlement, ...extra } });
+
+    it("leaves all three unset (and the manifest hash unchanged) when omitted", () => {
+      const r = parseCorridor(valid);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.value.settlement.receive_asset).toBeUndefined();
+      expect(r.value.settlement.receive_asset_issuer).toBeUndefined();
+      expect(r.value.settlement.max_slippage_bps).toBeUndefined();
+      expect(canonicalJson(r.value.settlement)).toBe(
+        '{"asset_issuer":"GISSUER","bridge_asset":"USDC","network":"public"}',
+      );
+    });
+
+    it("accepts a receive asset with its issuer and a slippage bound", () => {
+      const r = withSettlement({
+        receive_asset: "ARSX",
+        receive_asset_issuer: "GARSX",
+        max_slippage_bps: 25,
+      });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.value.settlement.receive_asset).toBe("ARSX");
+      expect(r.value.settlement.receive_asset_issuer).toBe("GARSX");
+      expect(r.value.settlement.max_slippage_bps).toBe(25);
+    });
+
+    it("accepts XLM as receive_asset without an issuer", () => {
+      expect(withSettlement({ receive_asset: "XLM" }).ok).toBe(true);
+    });
+
+    it("rejects receive_asset without receive_asset_issuer, and the reverse", () => {
+      const noIssuer = withSettlement({ receive_asset: "ARSX" });
+      expect(noIssuer.ok).toBe(false);
+      if (!noIssuer.ok) {
+        expect(noIssuer.error.code).toBe("MANIFEST_INVALID");
+        expect(noIssuer.error.message).toMatch(/receive_asset_issuer/);
+      }
+      const noAsset = withSettlement({ receive_asset_issuer: "GARSX" });
+      expect(noAsset.ok).toBe(false);
+      if (!noAsset.ok) expect(noAsset.error.message).toMatch(/receive_asset/);
+    });
+
+    it("rejects a max_slippage_bps that is negative, fractional, or 100% or more", () => {
+      for (const bad of [-1, 12.5, 10_000, 20_000]) {
+        const r = withSettlement({ max_slippage_bps: bad });
+        expect(r.ok, `max_slippage_bps ${bad}`).toBe(false);
+        if (!r.ok) expect(r.error.code).toBe("MANIFEST_INVALID");
+      }
+      expect(withSettlement({ max_slippage_bps: 0 }).ok).toBe(true);
+      expect(withSettlement({ max_slippage_bps: 9_999 }).ok).toBe(true);
+    });
+  });
+
   describe("proof schema", () => {
     it("parses valid proof and applies default max_age_days = 30", () => {
       const r = parseCorridor({ ...valid, proof: validProof });
