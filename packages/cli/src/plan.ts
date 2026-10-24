@@ -8,10 +8,12 @@
 import {
   liveness,
   protocolOf,
+  type ComplianceMethod,
   type Corridor,
   type DestProtocol,
   type Liveness,
 } from "@corridor/manifest";
+import type { RegistryNetwork } from "./plan-registry.js";
 
 /** The five engine verbs, in execution order. */
 export type PlanVerb = "quote" | "comply" | "open" | "settle" | "reconcile";
@@ -27,7 +29,7 @@ export interface PlanStep {
 }
 
 /** How customer compliance is handled for the destination leg. */
-export type ComplianceMethod = "sep12" | "sep6_fields" | "bespoke" | "none";
+export type { ComplianceMethod };
 
 export interface PlanSettlement {
   /** How the bridge asset reaches the destination anchor. */
@@ -88,6 +90,9 @@ function quoteStep(c: Corridor, protocol: DestProtocol): StepDraft {
 }
 
 function complianceMethod(c: Corridor): ComplianceMethod {
+  // An explicit manifest declaration wins; otherwise describe what the
+  // protocol's adapter will do.
+  if (c.compliance.method) return c.compliance.method;
   const endpoints = c.dest.endpoints;
   if ("kyc_server" in endpoints && endpoints.kyc_server) return "sep12";
   if (c.dest.protocol === "sep6") return "sep6_fields";
@@ -281,16 +286,21 @@ export type PlanArgs =
       readonly ok: true;
       readonly file: string;
       readonly json: boolean;
+      /** `--registry`: also read the dest anchor's on-chain attestation. */
       readonly registry: boolean;
-      readonly network: string;
+      /** Which registry deployment `--registry` reads (default testnet). */
+      readonly network: RegistryNetwork;
     }
   | { readonly ok: false; readonly error: string };
 
-/** Parse `plan` arguments: one manifest path plus an optional `--json`. */
+const PLAN_USAGE =
+  "usage: corridor plan <file.corridor.yaml> [--json] [--registry [--network testnet|public]]";
+
+/** Parse `plan` arguments: one manifest path plus optional `--json` and `--registry`. */
 export function parsePlanArgs(args: readonly string[]): PlanArgs {
   let json = false;
   let registry = false;
-  let network = "testnet";
+  let network: RegistryNetwork | undefined;
   const files: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
@@ -313,10 +323,14 @@ export function parsePlanArgs(args: readonly string[]): PlanArgs {
   }
   const [file] = files;
   if (!file) {
-    return { ok: false, error: "usage: corridor plan <file.corridor.yaml> [--json]" };
+    return { ok: false, error: PLAN_USAGE };
   }
   if (files.length > 1) {
     return { ok: false, error: `error: unexpected argument "${files[1]}"` };
   }
-  return { ok: true, file, json, registry, network };
+  // A --network that nothing reads would look like it had been honoured.
+  if (network !== undefined && !registry) {
+    return { ok: false, error: "error: --network only applies with --registry" };
+  }
+  return { ok: true, file, json, registry, network: network ?? "testnet" };
 }
