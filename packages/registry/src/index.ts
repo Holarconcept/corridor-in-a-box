@@ -180,8 +180,12 @@ export function filterAttestations(
     if (country !== undefined && record.country !== country) return false;
     if (asset && asset.length > 0) {
       const received = record.receiveAssets;
-      if (received === undefined || !asset.every((code) => received.includes(code)))
+      if (
+        received === undefined ||
+        !asset.every((code) => received.includes(code))
+      ) {
         return false;
+      }
     }
     return true;
   });
