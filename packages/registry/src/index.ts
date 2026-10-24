@@ -180,12 +180,8 @@ export function filterAttestations(
     if (country !== undefined && record.country !== country) return false;
     if (asset && asset.length > 0) {
       const received = record.receiveAssets;
-      if (
-        received === undefined ||
-        !asset.every((code) => received.includes(code))
-      ) {
+      if (received === undefined || !asset.every((code) => received.includes(code)))
         return false;
-      }
     }
     return true;
   });
@@ -633,45 +629,4 @@ export function findStale(
 // would reject the call.
 function nativeToScValString(s: string): xdr.ScVal {
   return nativeToScVal(s, { type: "string" });
-}
-
-/**
- * What the on-chain registry says about one anchor, reduced to the facts the
- * `corridor plan --registry` view needs. Built by the caller from `getAnchor`
- * and `staleness`; kept as plain data so the comparison is testable offline.
- */
-export interface RegistryView {
-  readonly domain: string;
-  /** Registry has an attestation for this domain at all. */
-  readonly attested: boolean;
-  readonly servesSep31: boolean;
-  /** Ledgers since the attestation, when attested. */
-  readonly staleness?: number;
-  readonly seps: readonly number[];
-}
-
-/** Outcome of comparing a manifest's VERIFIED claim with the registry's view. */
-export type RegistryAgreement =
-  | "agree"
-  | "manifest-verified-registry-not-serving"
-  | "never-attested"
-  | "stale";
-
-/**
- * Compare a manifest's liveness claim with the registry's observation.
- * Informational only: this is never a pre-settle gate.
- */
-export function compareWithManifest(
-  manifestVerified: boolean,
-  view: RegistryView,
-  maxStalenessLedgers: number = MAX_STALENESS_LEDGERS,
-): RegistryAgreement {
-  if (!view.attested) return "never-attested";
-  if (view.staleness !== undefined && view.staleness > maxStalenessLedgers) {
-    return "stale";
-  }
-  if (manifestVerified && !view.servesSep31) {
-    return "manifest-verified-registry-not-serving";
-  }
-  return "agree";
 }
